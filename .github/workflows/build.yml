@@ -72,9 +72,22 @@ jobs:
           echo "--- staged installer watchface ---"
           find watchfaces/canopus-installer-prod/xiaomi-band-11 -type f | sort
 
+      - name: Lua syntax check (standalone watchface)
+        run: |
+          sudo apt-get install -y lua5.4
+          luac5.4 -p native/watchface/main.lua && echo "main.lua syntax OK"
+
+      - name: Build standalone vibe-player payload + installer watchface
+        run: |
+          bash native/scripts/build_payload.sh
+          python3 native/scripts/build_installer.py
+          echo "--- vibe-player installer watchface ---"
+          find native/watchface/dist -type f | sort
+
       - name: Collect deliverables
         run: |
-          mkdir -p out inbox installer-watchface
+          mkdir -p out inbox installer-watchface vibe-player-watchface
+          cp -r native/watchface/dist/* vibe-player-watchface/
           cp canopus/modules/vib-probe/dist/*.canopus out/ 2>/dev/null || \
             find canopus/modules/vib-probe -name '*.canopus' -exec cp {} out/ \;
           find canopus/modules/vib-probe/build -name '*.elf' -exec cp {} out/vib_probe.elf \;
@@ -117,7 +130,7 @@ jobs:
         if: success()
         run: |
           mkdir -p pub
-          cp -r out inbox installer-watchface module-installer-watchface pub/
+          cp -r out inbox installer-watchface module-installer-watchface vibe-player-watchface pub/
           cd pub
           git init -q -b dist
           git config user.name "ci-dist"

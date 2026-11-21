@@ -14,3 +14,7 @@ Thumbs.db
 
 # temp dist extraction for .face build
 dist_extract/
+
+# vibe-player build artifacts
+native/out/
+native/watchface/dist/
