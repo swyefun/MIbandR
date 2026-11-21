@@ -11,8 +11,11 @@
  * amplitude u8}. This is the capability the Canopus haptics service hides
  * (its platform layer hard-codes amplitude 255).
  *
- * Exposed interface: character device /dev/vibe (same /dev prefix as the
- * proven /dev/canopus node). The device is opened with the firmware's
+ * Exposed interface: character device /dev/vibe2 (same /dev prefix as the
+ * proven /dev/canopus node). A fresh name is mandatory: the firmware
+ * register_driver returns EEXIST without updating the fops of an existing
+ * inode, so the stale /dev/vibe node (created by an early build with NULL
+ * open/read callbacks) is permanently poisoned and opens with EACCES. The device is opened with the firmware's
  * ORIGINAL io.open (recovered from the sandboxed wrapper via
  * debug.getupvalue, exactly like the Canopus installer does for
  * /dev/canopus) and accepts one command byte per write:
@@ -74,7 +77,7 @@ typedef int *(*fw_errno_location_fn)(void);
 #define VIBE_REGISTER_VERIFY_BASE 65536  /* Canopus REGISTER_VERIFY_ERRNO_BASE */
 
 /* Nuttx character device node, same prefix as the proven /dev/canopus. */
-#define VIBE_DEVICE_PATH    "/dev/vibe"
+#define VIBE_DEVICE_PATH    "/dev/vibe2"
 
 /* ---- recovered file_operations layout (canopus_veneer.h:31-39) ---- */
 

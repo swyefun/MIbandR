@@ -33,7 +33,7 @@ end
 local lvgl = require("lvgl")
 
 local TARGET_ID = PROFILE and PROFILE.target_id
-local VIBE_DEVICE = "/dev/vibe"
+local VIBE_DEVICE = "/dev/vibe2"
 local MODULE_MIN_SIZE = 512
 local MODULE_MAX_SIZE = 262144
 
@@ -344,7 +344,7 @@ local function click_load()
         if not vibe_device_present() then
             check(load_engine())
             checkpoint("确认引擎已就绪")
-            check(vibe_device_present(), "no /dev/vibe")
+            check(vibe_device_present(), "no " .. VIBE_DEVICE)
         end
         engine_loaded = true
         return "引擎已加载\n可点击下方按钮测试幅度"
