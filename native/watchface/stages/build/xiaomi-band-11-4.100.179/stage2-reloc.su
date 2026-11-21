@@ -1,0 +1,4 @@
+canopus/runtime/loader/canopus_arm_reloc.c:114:canopus_arm_rel_apply	24	static
+canopus/runtime/loader/canopus_arm_reloc.c:28:decode_thumb_mov	8	static
+canopus/runtime/loader/canopus_arm_reloc.c:48:encode_thumb_mov	8	static
+canopus/runtime/loader/canopus_arm_reloc.c:94:encode_thumb_branch	24	static

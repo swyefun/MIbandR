@@ -1,0 +1,28 @@
+{
+  "artifacts": [
+    {
+      "firmware_sha256": "307adabe0ff61c77be73d045a8260e279cddd131c7a535a2678eb34199278a2b",
+      "path": "artifacts/xiaomi-band-11-4.100.179/module.elf",
+      "receipt_path": "receipts/xiaomi-band-11-4.100.179.cmi",
+      "receipt_sha256": "bd679746efb708cd0cd540d060d9f2bf2a205de570c83ea1e1a977f794e5a32f",
+      "sha256": "8a935b6b28037d6e4cd092bc6389d3f6be0ad977246a3180ae3b01663102dff8",
+      "target_id": "xiaomi-band-11-4.100.179",
+      "target_pack_revision": 2
+    }
+  ],
+  "build_generation": 1,
+  "canopus_abi": "2",
+  "lifecycle": "removable",
+  "min_manager_version": "0.1.0",
+  "module_id": "vibe_player",
+  "package_id": "vibe_player",
+  "reboot_required": true,
+  "reproducibility": {
+    "build_environment": "canopus 0.2.1, sdk f196b200823f47780c73ae48c4c62da8fe5311df"
+  },
+  "schema": 1,
+  "target_pack_revision": 2,
+  "update_semantics": "staged next generation; switch at next load",
+  "version": "1.0.0",
+  "version_code": 1
+}

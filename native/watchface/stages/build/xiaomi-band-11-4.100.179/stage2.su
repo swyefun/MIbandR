@@ -1,0 +1,8 @@
+canopus/manager/target/band11/stage2.c:73:canopus_band11_stage2_entry	88	static
+canopus/manager/target/band11/stage2.c:15:allocate	80	static
+canopus/manager/target/band11/stage2.c:36:release	16	static
+canopus/manager/target/band11/stage2.c:45:finalize	16	static
+canopus/manager/target/band11/stage2.c:66:invoke	8	static
+canopus/manager/target/band11/canopus_band11_memory.h:125:b11_exec_alias	16	static
+canopus/manager/target/band11/canopus_band11_memory.h:25:b11_heap_contains	8	static
+canopus/manager/target/band11/canopus_band11_memory.h:165:b11_map_exec	20	static

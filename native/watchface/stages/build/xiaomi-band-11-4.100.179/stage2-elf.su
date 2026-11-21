@@ -1,0 +1,5 @@
+canopus/runtime/loader/canopus_elf32_loader.c:138:canopus_elf32_section_count	0	static
+canopus/runtime/loader/canopus_elf32_loader.c:143:canopus_elf32_load	128	static
+canopus/runtime/loader/canopus_elf32_loader.c:88:name_equals	16	static
+canopus/runtime/loader/canopus_elf32_loader.c:105:append_array	24	static
+canopus/runtime/loader/canopus_elf32_loader.c:442:canopus_elf32_unload	24	static
