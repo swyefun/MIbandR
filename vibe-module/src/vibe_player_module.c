@@ -31,13 +31,13 @@
 
 enum {
     CMD_SWEEP = 1, CMD_PULSE, CMD_STEADY, CMD_STOP,
-    CMD_PROBE_DURATION, CMD_PROBE_OFFSET, CMD_PROBE_FLAGS,
+    CMD_PROBE_DURATION, CMD_PROBE_OFFSET, CMD_PROBE_FLAGS, CMD_PROBE_FLAGSAB,
     CMD_GOPROBE, CMD_BACK
 };
 enum {
     KEY_SWEEP = 10, KEY_PULSE, KEY_STEADY, KEY_STOP, KEY_STATUS,
     KEY_PROBE_DURATION, KEY_PROBE_OFFSET, KEY_PROBE_FLAGS,
-    KEY_GOPROBE, KEY_BACK
+    KEY_PROBE_FLAGSAB, KEY_GOPROBE, KEY_BACK
 };
 
 /* ---- firmware vibrator ABI, recovered by Canopus (platform.c:1940-1969) ---- */
@@ -118,19 +118,44 @@ static const struct vibe_segment s_offset[4] = {
     {2500u,  150u, 0u, 255u},
 };
 
-/* 0x06: flags byte scan - each bit 0x01..0x80 drives one 600 ms full-amplitude
- * segment (400 ms silent gaps carry flags 0). A bit rejected by the firmware
- * fails the whole run with a negative rc; a bit that alters drive behavior
- * (brake, boost, envelope shape) shows up as a perceptible change. */
+/* 0x06: flags byte scan, POSITION-ENCODED - pulse i (bit 0x01<<i) is followed
+ * by a gap of 300+i*100 ms, so the spacing pattern identifies each segment
+ * unambiguously on a spectrogram regardless of time-axis direction. The
+ * first scan showed the last pulses lit extra harmonics (2*f0, 2.8*f0);
+ * this version pins down WHICH bits do it. */
 static const struct vibe_segment s_flags[16] = {
-    {0u, 600u, 0x01u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 600u, 0x01u, 255u}, {0u, 300u, 0u, 0u},
     {0u, 600u, 0x02u, 255u}, {0u, 400u, 0u, 0u},
-    {0u, 600u, 0x04u, 255u}, {0u, 400u, 0u, 0u},
-    {0u, 600u, 0x08u, 255u}, {0u, 400u, 0u, 0u},
-    {0u, 600u, 0x10u, 255u}, {0u, 400u, 0u, 0u},
-    {0u, 600u, 0x20u, 255u}, {0u, 400u, 0u, 0u},
-    {0u, 600u, 0x40u, 255u}, {0u, 400u, 0u, 0u},
-    {0u, 600u, 0x80u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 600u, 0x04u, 255u}, {0u, 500u, 0u, 0u},
+    {0u, 600u, 0x08u, 255u}, {0u, 600u, 0u, 0u},
+    {0u, 600u, 0x10u, 255u}, {0u, 700u, 0u, 0u},
+    {0u, 600u, 0x20u, 255u}, {0u, 800u, 0u, 0u},
+    {0u, 600u, 0x40u, 255u}, {0u, 900u, 0u, 0u},
+    {0u, 600u, 0x80u, 255u}, {0u, 1000u, 0u, 0u},
+};
+
+/* 0x07: flags A/B on SHORT pulses. Envelope/brake-class flag effects act at
+ * segment boundaries and are masked inside a 600 ms steady tone; a 30 ms
+ * pulse is almost all transient. Each bit gets a paired comparison:
+ * reference 30 ms pulse (flags 0) vs 30 ms pulse (flags = bit), 400 ms gaps.
+ * Same perceived pair for all 8 bits => flags is a no-op for audible drive. */
+static const struct vibe_segment s_flagsab[32] = {
+    {0u, 30u, 0x00u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 30u, 0x01u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 30u, 0x00u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 30u, 0x02u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 30u, 0x00u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 30u, 0x04u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 30u, 0x00u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 30u, 0x08u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 30u, 0x00u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 30u, 0x10u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 30u, 0x00u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 30u, 0x20u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 30u, 0x00u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 30u, 0x40u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 30u, 0x00u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 30u, 0x80u, 255u}, {0u, 400u, 0u, 0u},
 };
 
 static struct vibe_waveform s_wave;
@@ -240,7 +265,9 @@ static int32_t vibe_render(struct canopus_ui_context_v1 *ui)
         if (rc == 0) rc = ui_action(t, KEY_PROBE_OFFSET, "② offset 调度",
                                     "静默3s + 3脉冲@0.5/1.5/2.5s", CMD_PROBE_OFFSET);
         if (rc == 0) rc = ui_action(t, KEY_PROBE_FLAGS, "③ flags 位扫描",
-                                    "0x01..0x80 各600ms", CMD_PROBE_FLAGS);
+                                    "0x01..0x80 间隔递增300→1000ms", CMD_PROBE_FLAGS);
+        if (rc == 0) rc = ui_action(t, KEY_PROBE_FLAGSAB, "④ flags A/B",
+                                    "30ms 参照vs该位 配对对比", CMD_PROBE_FLAGSAB);
         if (rc == 0) rc = ui_action(t, KEY_BACK, "← 返回",
                                     "回主页面", CMD_BACK);
     }
@@ -276,6 +303,8 @@ static int32_t vibe_on_event(const struct canopus_context_v1 *ctx,
         rc = vibe_play(s_offset, 4u);  set_status("offset调度", rc); return vibe_render(ui);
     case CMD_PROBE_FLAGS:
         rc = vibe_play(s_flags, 16u);  set_status("flags扫描", rc); return vibe_render(ui);
+    case CMD_PROBE_FLAGSAB:
+        rc = vibe_play(s_flagsab, 32u); set_status("flagsA/B", rc); return vibe_render(ui);
     case CMD_STOP:
         vibe_stop_now();
         set_status("已停止", 0);
@@ -390,8 +419,8 @@ static const struct canopus_module_descriptor_v1 s_descriptor = {
                       CANOPUS_FLAG_REGISTERS_LAUNCHER_ENTRY |
                       CANOPUS_FLAG_APP_UNREGISTER_REBOOT_REQUIRED,
     .module_id      = MODULE_ID,
-    .module_version = "1.1.0",
-    .build_id       = "vibe-player-1.1.0",
+    .module_version = "1.2.0",
+    .build_id       = "vibe-player-1.2.0",
     .target_id      = CANOPUS_TARGET_ID,
     .prepare        = vibe_prepare,
     .activate       = vibe_activate,
