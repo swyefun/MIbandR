@@ -69,6 +69,7 @@ typedef int  (*register_driver_fn)(const char *path, const void *fops,
  * This firmware's O_RDONLY is 1 (canopus_supervisor_platform.c:74). */
 typedef int (*fw_open_fn)(const char *path, int flags);
 typedef int (*fw_close_fn)(int fd);
+typedef int *(*fw_errno_location_fn)(void);
 #define FW_O_RDONLY 1
 #define VIBE_REGISTER_VERIFY_BASE 65536  /* Canopus REGISTER_VERIFY_ERRNO_BASE */
 
@@ -229,9 +230,16 @@ static void vibe_player_ctor(volatile int32_t *mailbox)
      * and returns the inode-lock release result (Canopus supervisor comment),
      * so verify the node is actually openable before reporting success. */
     {
+        fw_errno_location_fn errno_location =
+            (fw_errno_location_fn)(uintptr_t)CANOPUS_SUP_NUTTX_ERRNO_LOCATION;
         int fd = fw_open(VIBE_DEVICE_PATH, FW_O_RDONLY);
         if (fd < 0) {
-            int err = -fd;
+            /* The firmware open returns -1 with the reason in errno
+             * (canopus_supervisor_platform.c:340 reads errno_location). */
+            int *error_pointer = errno_location ? errno_location() : (int *)0;
+            int err = error_pointer != 0 ? *error_pointer : 0;
+            if (err < 0) err = -err;
+            if (err == 0) err = -fd;
             if (err > 4095) err = 4095;
             *mailbox = -(VIBE_REGISTER_VERIFY_BASE + err);
             __asm__ volatile("dsb sy" ::: "memory");
