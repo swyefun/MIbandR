@@ -181,6 +181,12 @@ static void vibe_player_ctor(volatile int32_t *mailbox)
 
     s_last_id = 0;
     int rc = reg(VIBE_DEVICE_PATH, (const void *)&s_fops, (void *)0);
+    if (rc == -17) {
+        /* -EEXIST: the device node survived from an earlier successful
+         * load in this boot session (the driver table persists across
+         * module reloads). The device is available either way. */
+        rc = 0;
+    }
     if (mailbox) {
         /* NuttX register_driver: 0 on success, negative errno on failure. */
         *mailbox = rc;
