@@ -171,12 +171,24 @@ static const struct vibe_fops s_fops = {
      0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u},
 };
 
-/* Constructor runs on the firmware exec task's stack (stage2 .init_array).
- * Register the device and return immediately - nothing blocks. */
-__attribute__((constructor)) static void vibe_player_init(void)
+/* Constructor runs on the firmware exec task's stack (stage2 invokes the
+ * .init_array entries with r0 = mailbox). The stage2 wrapper expects the
+ * constructor to publish its result: 0 on success, negative errno otherwise.
+ * Mirrors canopus_supervisor_module.c canopus_sup_ctor_mailbox. */
+static volatile int32_t *s_ctor_mailbox;
+
+static void vibe_player_ctor(void)
 {
     register_driver_fn reg = (register_driver_fn)(uintptr_t)B11_REGISTER_DRIVER;
 
     s_last_id = 0;
-    (void)reg(VIBE_DEVICE_PATH, (const void *)&s_fops, (void *)0);
+    int rc = reg(VIBE_DEVICE_PATH, (const void *)&s_fops, (void *)0);
+    if (s_ctor_mailbox) {
+        /* NuttX register_driver: 0 on success, negative errno on failure. */
+        *s_ctor_mailbox = rc;
+        __asm__ volatile("dsb sy" ::: "memory");
+    }
 }
+
+__attribute__((used, section(".init_array")))
+static void (*const vibe_player_init_entry)(volatile int32_t *) = vibe_player_ctor;
