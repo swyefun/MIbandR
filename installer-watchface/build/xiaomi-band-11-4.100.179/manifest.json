@@ -1,0 +1,32 @@
+{
+  "target_id": "xiaomi-band-11-4.100.179",
+  "firmware_sha256": "307adabe0ff61c77be73d045a8260e279cddd131c7a535a2678eb34199278a2b",
+  "artifact_kind": "exact-target-native-resources",
+  "native_loader_status": "STATIC_TEST_CANDIDATE",
+  "device_status": "NOT_PROBED",
+  "supervisor_included": true,
+  "lua_protection": "none",
+  "reentry_unwind_leaks_path": true,
+  "resources": {
+    "canopus_loader_profile-xiaomi-band-11-4.100.179.bin": {
+      "size": 1086,
+      "sha256": "5003b7c64749968e4f2c2b476994c2804dc4428830d67fc4b5769ae55626b690"
+    },
+    "canopus_stage1-xiaomi-band-11-4.100.179.bin": {
+      "size": 1449,
+      "sha256": "b4867a5fc9f50567887e06e4aa5e75e8f0f347db20c364355effac12f6331800"
+    },
+    "canopus_stage2-xiaomi-band-11-4.100.179.bin": {
+      "size": 5084,
+      "sha256": "094c3924d83ff78f93a8bfbf37ad8f17de1709af89949ac5df2f28e647f2319c"
+    },
+    "canopus_supervisor-xiaomi-band-11-4.100.179.bin": {
+      "size": 131928,
+      "sha256": "62cc1112054a60bed9a59f66724f7c9d1e9af3767d2c6653218f82df243113b2"
+    },
+    "canopus_boot-xiaomi-band-11-4.100.179.bin": {
+      "size": 11825,
+      "sha256": "8a370872a901613a4e25a1105fb3c267435bc36c844d6cdf2222cb35a680886c"
+    }
+  }
+}
