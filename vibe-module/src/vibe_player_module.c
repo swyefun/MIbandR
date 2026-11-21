@@ -31,13 +31,15 @@ enum {
     CMD_SWEEP = 1, CMD_PULSE, CMD_STEADY, CMD_STOP,
     CMD_PROBE_DURATION, CMD_PROBE_OFFSET, CMD_PROBE_FLAGS, CMD_PROBE_FLAGSAB,
     CMD_GOPROBE, CMD_BACK, CMD_GOMUSIC,
-    CMD_TRACK_STAR, CMD_TRACK_ODE, CMD_TRACK_DRUM
+    CMD_TRACK_STAR, CMD_TRACK_ODE, CMD_TRACK_DRUM,
+    CMD_TRACK_MAN_FULL, CMD_TRACK_MAN_CLIP
 };
 enum {
     KEY_SWEEP = 10, KEY_PULSE, KEY_STEADY, KEY_STOP, KEY_STATUS,
     KEY_PROBE_DURATION, KEY_PROBE_OFFSET, KEY_PROBE_FLAGS,
     KEY_PROBE_FLAGSAB, KEY_GOPROBE, KEY_BACK,
-    KEY_GOMUSIC, KEY_TRACK_STAR, KEY_TRACK_ODE, KEY_TRACK_DRUM
+    KEY_GOMUSIC, KEY_TRACK_STAR, KEY_TRACK_ODE, KEY_TRACK_DRUM,
+    KEY_TRACK_MAN_FULL, KEY_TRACK_MAN_CLIP
 };
 
 /* ---- firmware vibrator ABI, recovered by Canopus (platform.c:1940-1969) ---- */
@@ -279,6 +281,10 @@ static int32_t vibe_render(struct canopus_ui_context_v1 *ui)
                                     "回主页面", CMD_BACK);
     } else {
         if (rc == 0) rc = s_ctx->ui->navigation_page(t, 3u, &music);
+        if (rc == 0) rc = ui_action(t, KEY_TRACK_MAN_CLIP, "Man 副歌",
+                                    "真歌包络 20-56s", CMD_TRACK_MAN_CLIP);
+        if (rc == 0) rc = ui_action(t, KEY_TRACK_MAN_FULL, "Man 全曲",
+                                    "真歌包络 约113秒", CMD_TRACK_MAN_FULL);
         if (rc == 0) rc = ui_action(t, KEY_TRACK_STAR, "小星星",
                                     "节奏旋律 约20秒", CMD_TRACK_STAR);
         if (rc == 0) rc = ui_action(t, KEY_TRACK_ODE, "欢乐颂",
@@ -333,6 +339,12 @@ static int32_t vibe_on_event(const struct canopus_context_v1 *ctx,
     case CMD_TRACK_DRUM:
         rc = vibe_play(s_TRACK_DRUM_BEAT, (uint32_t)TRACK_DRUM_BEAT_COUNT);
         set_status("鼓点节拍", rc); return vibe_render(ui);
+    case CMD_TRACK_MAN_CLIP:
+        rc = vibe_play(s_TRACK_MAN_CLIP, (uint32_t)TRACK_MAN_CLIP_COUNT);
+        set_status("Man副歌", rc); return vibe_render(ui);
+    case CMD_TRACK_MAN_FULL:
+        rc = vibe_play(s_TRACK_MAN_FULL, (uint32_t)TRACK_MAN_FULL_COUNT);
+        set_status("Man全曲", rc); return vibe_render(ui);
     case CMD_STOP:
         vibe_stop_now();
         set_status("已停止", 0);
@@ -450,8 +462,8 @@ static const struct canopus_module_descriptor_v1 s_descriptor = {
                       CANOPUS_FLAG_REGISTERS_LAUNCHER_ENTRY |
                       CANOPUS_FLAG_APP_UNREGISTER_REBOOT_REQUIRED,
     .module_id      = MODULE_ID,
-    .module_version = "1.3.0",
-    .build_id       = "vibe-player-1.3.0",
+    .module_version = "1.4.0",
+    .build_id       = "vibe-player-1.4.0",
     .target_id      = CANOPUS_TARGET_ID,
     .prepare        = vibe_prepare,
     .activate       = vibe_activate,
