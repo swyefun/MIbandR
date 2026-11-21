@@ -175,17 +175,15 @@ static const struct vibe_fops s_fops = {
  * .init_array entries with r0 = mailbox). The stage2 wrapper expects the
  * constructor to publish its result: 0 on success, negative errno otherwise.
  * Mirrors canopus_supervisor_module.c canopus_sup_ctor_mailbox. */
-static volatile int32_t *s_ctor_mailbox;
-
-static void vibe_player_ctor(void)
+static void vibe_player_ctor(volatile int32_t *mailbox)
 {
     register_driver_fn reg = (register_driver_fn)(uintptr_t)B11_REGISTER_DRIVER;
 
     s_last_id = 0;
     int rc = reg(VIBE_DEVICE_PATH, (const void *)&s_fops, (void *)0);
-    if (s_ctor_mailbox) {
+    if (mailbox) {
         /* NuttX register_driver: 0 on success, negative errno on failure. */
-        *s_ctor_mailbox = rc;
+        *mailbox = rc;
         __asm__ volatile("dsb sy" ::: "memory");
     }
 }
