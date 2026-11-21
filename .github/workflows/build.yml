@@ -1,0 +1,139 @@
+name: build
+
+# 构建 vib_probe 模块与 .179 安装材料：检出 pin 版 Canopus 工具链，
+# 覆盖模块后走 canopus build -> verify -> package；再构建 .179 Supervisor 与
+# Band 11 安装器表盘资源。全部产物发布到 dist 分支（匿名可下载）。
+#
+# 这是 MIbandR 的手环 11 马达 f0 实测工具链：模块让马达持续振动，
+# 配合空心容器 + 手机 FFT 读出真实谐振频率。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CANOPUS_SHA: f196b200823f47780c73ae48c4c62da8fe5311df
+  TARGET_ID: xiaomi-band-11-4.100.179
+  MODULE_ID: vib_probe
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone Canopus toolchain (pinned, anonymous)
+        run: |
+          git clone --quiet https://github.com/AstralSightStudios/Canopus.git canopus
+          git -C canopus checkout --quiet --detach "$CANOPUS_SHA"
+
+      - name: Install Rust (stable + thumbv8m.main-none-eabi)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv8m.main-none-eabi
+
+      - name: Install LLVM toolchain (clang, ld.lld, llvm-ar, objcopy)
+        run: sudo apt-get update && sudo apt-get install -y clang lld llvm
+
+      - name: Overlay module into Canopus tree
+        run: cp -r canopus-module canopus/modules/vib-probe
+
+      - name: Build canopus CLI
+        working-directory: canopus
+        run: cargo build --release -p canopus-cli
+
+      - name: Doctor
+        working-directory: canopus
+        run: target/release/canopus doctor
+
+      - name: Build module
+        working-directory: canopus/modules/vib-probe
+        run: |
+          set -o pipefail
+          ../../target/release/canopus build 2>&1 | tee build-cli.log
+          ../../target/release/canopus package 2>&1 | tee package.log
+
+      - name: Verify ELF against target pack
+        working-directory: canopus
+        run: |
+          elf=$(find modules/vib-probe/build -name '*.elf' | head -1)
+          echo "verifying $elf"
+          target/release/canopus verify "$elf" --target "$TARGET_ID" --targets-dir targets 2>&1 | tee modules/vib-probe/verify.log
+
+      - name: Build .179 Supervisor + Band 11 installer watchface
+        working-directory: canopus
+        run: |
+          CANOPUS_TARGET="$TARGET_ID" sh scripts/build_canopus_supervisor.sh
+          echo "--- staged installer watchface ---"
+          find watchfaces/canopus-installer-prod/xiaomi-band-11 -type f | sort
+
+      - name: Collect deliverables
+        run: |
+          mkdir -p out inbox installer-watchface
+          cp canopus/modules/vib-probe/dist/*.canopus out/ 2>/dev/null || \
+            find canopus/modules/vib-probe -name '*.canopus' -exec cp {} out/ \;
+          find canopus/modules/vib-probe/build -name '*.elf' -exec cp {} out/vib_probe.elf \;
+          pkg=$(find out -name '*.canopus' | head -1)
+          tar -xf "$pkg" -C out
+          cp out/receipts/*.cmi "inbox/${MODULE_ID}.cmi.next"
+          cp out/artifacts/*/module.elf "inbox/${MODULE_ID}.ko.next"
+          cp -r canopus/watchfaces/canopus-installer-prod/xiaomi-band-11/* installer-watchface/
+          echo "--- deliverables ---"
+          find out inbox installer-watchface -type f | sort
+
+      - name: Build module installer watchface (.179)
+        run: |
+          cd canopus
+          # The pinned generator has no product entry for vib_probe; inject
+          # one (token matches the CMI2 receipt) and pack the inbox payload.
+          python3 - <<'EOF'
+          p = 'scripts/build_module_installer_prod.py'
+          s = open(p, encoding='utf-8').read()
+          old1 = "PRODUCTS = {\n    'resource-hook':"
+          new1 = "PRODUCTS = {\n    'vib-probe': ('vib_probe', 'Vib Probe', 262144, []),\n    'resource-hook':"
+          old2 = "PRODUCT_TARGETS = {\n    'resource-hook':"
+          new2 = "PRODUCT_TARGETS = {\n    'vib-probe': ['xiaomi-band-11-4.100.179'],\n    'resource-hook':"
+          assert old1 in s and old2 in s, 'generator anchors missing'
+          open(p, 'w', encoding='utf-8', newline='\n').write(
+              s.replace(old1, new1).replace(old2, new2))
+          EOF
+          mkdir -p build/payload/"$TARGET_ID" build/assets ../module-installer-watchface
+          cp ../inbox/"$MODULE_ID".ko.next   build/payload/"$TARGET_ID"/vib-probe.elf
+          cp ../inbox/"$MODULE_ID".cmi.next  build/payload/"$TARGET_ID"/receipt.bin
+          python3 scripts/build_module_installer_prod.py \
+            --product vib-probe --target "$TARGET_ID" \
+            --payload-dir build/payload --assets-dir build/assets \
+            --output-dir build/installer
+          python3 ../scripts/patch_installer_button.py \
+            build/installer/xiaomi-band-11/main.lua
+          cp -r build/installer/xiaomi-band-11/* ../module-installer-watchface/
+
+      - name: Publish deliverables to dist branch
+        if: success()
+        run: |
+          mkdir -p pub
+          cp -r out inbox installer-watchface module-installer-watchface pub/
+          cd pub
+          git init -q -b dist
+          git config user.name "ci-dist"
+          git config user.email "ci-dist@users.noreply.github.com"
+          git add -A
+          git commit -q -m "dist: build ${{ github.sha }}"
+          git push -q --force "https://x-access-token:${{ github.token }}@github.com/swyefun/MIbandR.git" dist
+
+      - name: Push build log on failure
+        if: failure()
+        run: |
+          git config user.name "ci-logs"
+          git config user.email "ci-logs@users.noreply.github.com"
+          cp canopus/modules/vib-probe/*.log . 2>/dev/null || true
+          git checkout --orphan ci-logs-tmp
+          git rm -rf --quiet . || true
+          git add -A
+          git commit -m "ci log: run ${{ github.run_id }} (sha ${{ github.sha }})"
+          git push --force "https://x-access-token:${{ github.token }}@github.com/swyefun/MIbandR.git" HEAD:refs/heads/ci-logs
