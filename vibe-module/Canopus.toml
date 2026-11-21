@@ -1,0 +1,21 @@
+schema = 1
+
+[module]
+id = "vibe_player"
+version = "1.0.0"
+version_code = 1
+kind = "target"
+language = "c"
+lifecycle = "removable"
+canopus_abi = "2"
+description = "MIbandR vibe player: LRA waveform tests with REAL per-segment amplitude, published as an app-list entry"
+
+[build]
+sources = [
+  "src/vibe_player_module.c",
+]
+
+[targets]
+include = [
+  "xiaomi-band-11-4.100.179",
+]

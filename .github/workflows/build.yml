@@ -1,11 +1,13 @@
 name: build
 
-# 构建 vib_probe 模块与 .179 安装材料：检出 pin 版 Canopus 工具链，
+# 构建 vibe_player 模块与 .179 安装材料：检出 pin 版 Canopus 工具链，
 # 覆盖模块后走 canopus build -> verify -> package；再构建 .179 Supervisor 与
 # Band 11 安装器表盘资源。全部产物发布到 dist 分支（匿名可下载）。
 #
-# 这是 MIbandR 的手环 11 马达 f0 实测工具链：模块让马达持续振动，
-# 配合空心容器 + 手机 FFT 读出真实谐振频率。
+# vibe_player 模块以应用列表条目（launcher）发布 "MIbandR Vibe"：
+# 页面按钮直调 CANOPUS_SUP_VIBRATOR_RUN 播放真实幅度波形（扫幅度/短脉冲/恒振/停止）。
+# 使用流程：先运行框架安装表盘（supervisor + 管理器），再装模块表盘，
+# 在 Canopus 管理器里启用模块后应用即出现在应用列表。
 
 on:
   push:
@@ -19,7 +21,7 @@ permissions:
 env:
   CANOPUS_SHA: f196b200823f47780c73ae48c4c62da8fe5311df
   TARGET_ID: xiaomi-band-11-4.100.179
-  MODULE_ID: vib_probe
+  MODULE_ID: vibe_player
 
 jobs:
   build:
@@ -41,7 +43,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang lld llvm
 
       - name: Overlay module into Canopus tree
-        run: cp -r canopus-module canopus/modules/vib-probe
+        run: cp -r vibe-module canopus/modules/vibe-player
 
       - name: Build canopus CLI
         working-directory: canopus
@@ -52,7 +54,7 @@ jobs:
         run: target/release/canopus doctor
 
       - name: Build module
-        working-directory: canopus/modules/vib-probe
+        working-directory: canopus/modules/vibe-player
         run: |
           set -o pipefail
           ../../target/release/canopus build 2>&1 | tee build-cli.log
@@ -61,9 +63,9 @@ jobs:
       - name: Verify ELF against target pack
         working-directory: canopus
         run: |
-          elf=$(find modules/vib-probe/build -name '*.elf' | head -1)
+          elf=$(find modules/vibe-player/build -name '*.elf' | head -1)
           echo "verifying $elf"
-          target/release/canopus verify "$elf" --target "$TARGET_ID" --targets-dir targets 2>&1 | tee modules/vib-probe/verify.log
+          target/release/canopus verify "$elf" --target "$TARGET_ID" --targets-dir targets 2>&1 | tee modules/vibe-player/verify.log
 
       - name: Build .179 Supervisor + Band 11 installer watchface
         working-directory: canopus
@@ -94,9 +96,9 @@ jobs:
         run: |
           mkdir -p out inbox installer-watchface vibe-player-watchface
           cp -r native/watchface/dist/* vibe-player-watchface/
-          cp canopus/modules/vib-probe/dist/*.canopus out/ 2>/dev/null || \
-            find canopus/modules/vib-probe -name '*.canopus' -exec cp {} out/ \;
-          find canopus/modules/vib-probe/build -name '*.elf' -exec cp {} out/vib_probe.elf \;
+          cp canopus/modules/vibe-player/dist/*.canopus out/ 2>/dev/null || \
+            find canopus/modules/vibe-player -name '*.canopus' -exec cp {} out/ \;
+          find canopus/modules/vibe-player/build -name '*.elf' -exec cp {} out/vibe_player.elf \;
           pkg=$(find out -name '*.canopus' | head -1)
           tar -xf "$pkg" -C out
           cp out/receipts/*.cmi "inbox/${MODULE_ID}.cmi.next"
@@ -108,24 +110,24 @@ jobs:
       - name: Build module installer watchface (.179)
         run: |
           cd canopus
-          # The pinned generator has no product entry for vib_probe; inject
+          # The pinned generator has no product entry for vibe_player; inject
           # one (token matches the CMI2 receipt) and pack the inbox payload.
           python3 - <<'EOF'
           p = 'scripts/build_module_installer_prod.py'
           s = open(p, encoding='utf-8').read()
           old1 = "PRODUCTS = {\n    'resource-hook':"
-          new1 = "PRODUCTS = {\n    'vib-probe': ('vib_probe', 'Vib Probe', 262144, []),\n    'resource-hook':"
+          new1 = "PRODUCTS = {\n    'vibe-player': ('vibe_player', 'MIbandR Vibe', 262144, []),\n    'resource-hook':"
           old2 = "PRODUCT_TARGETS = {\n    'resource-hook':"
-          new2 = "PRODUCT_TARGETS = {\n    'vib-probe': ['xiaomi-band-11-4.100.179'],\n    'resource-hook':"
+          new2 = "PRODUCT_TARGETS = {\n    'vibe-player': ['xiaomi-band-11-4.100.179'],\n    'resource-hook':"
           assert old1 in s and old2 in s, 'generator anchors missing'
           open(p, 'w', encoding='utf-8', newline='\n').write(
               s.replace(old1, new1).replace(old2, new2))
           EOF
           mkdir -p build/payload/"$TARGET_ID" build/assets ../module-installer-watchface
-          cp ../inbox/"$MODULE_ID".ko.next   build/payload/"$TARGET_ID"/vib-probe.elf
+          cp ../inbox/"$MODULE_ID".ko.next   build/payload/"$TARGET_ID"/vibe_player.elf
           cp ../inbox/"$MODULE_ID".cmi.next  build/payload/"$TARGET_ID"/receipt.bin
           python3 scripts/build_module_installer_prod.py \
-            --product vib-probe --target "$TARGET_ID" \
+            --product vibe-player --target "$TARGET_ID" \
             --payload-dir build/payload --assets-dir build/assets \
             --output-dir build/installer
           python3 ../scripts/patch_installer_button.py \
@@ -150,7 +152,7 @@ jobs:
         run: |
           git config user.name "ci-logs"
           git config user.email "ci-logs@users.noreply.github.com"
-          cp canopus/modules/vib-probe/*.log . 2>/dev/null || true
+          cp canopus/modules/vibe-player/*.log . 2>/dev/null || true
           git checkout --orphan ci-logs-tmp
           git rm -rf --quiet . || true
           git add -A
