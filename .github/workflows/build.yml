@@ -124,7 +124,7 @@ jobs:
               s.replace(old1, new1).replace(old2, new2))
           EOF
           mkdir -p build/payload/"$TARGET_ID" build/assets ../module-installer-watchface
-          cp ../inbox/"$MODULE_ID".ko.next   build/payload/"$TARGET_ID"/vibe_player.elf
+          cp ../inbox/"$MODULE_ID".ko.next   build/payload/"$TARGET_ID"/vibe-player.elf
           cp ../inbox/"$MODULE_ID".cmi.next  build/payload/"$TARGET_ID"/receipt.bin
           python3 scripts/build_module_installer_prod.py \
             --product vibe-player --target "$TARGET_ID" \
