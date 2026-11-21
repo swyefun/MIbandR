@@ -174,8 +174,10 @@ end
 
 local function set_status(text, color)
     if status then
-        status:set_text(tostring(text))
-        if color then status:set_style_text_color(lvgl.color_hex(color)) end
+        -- LuaLVGL v9 on Band 11 exposes property-table setters, not
+        -- set_text()/set_style_text_color() (validated on device by the
+        -- Canopus installer: status:set { text = ..., text_color = ... }).
+        status:set { text = tostring(text), text_color = color or '#bfd9ff' }
     end
 end
 
