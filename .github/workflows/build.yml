@@ -80,6 +80,12 @@ jobs:
       - name: Build standalone vibe-player payload + installer watchface
         run: |
           bash native/scripts/build_payload.sh
+          # stage1/stage2 must be rebuilt with CRCs bound to THIS payload;
+          # pre-built baseline stages fail on device with rc=-313.
+          python3 native/scripts/build_stages.py \
+            --canopus canopus \
+            --payload native/out/vibe_player.elf \
+            --output-dir native/watchface/stages
           python3 native/scripts/build_installer.py
           echo "--- vibe-player installer watchface ---"
           find native/watchface/dist -type f | sort

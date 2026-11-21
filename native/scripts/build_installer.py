@@ -38,21 +38,22 @@ def main() -> None:
     if payload[:4] != b"\x7fELF":
         raise SystemExit("payload is not an ELF file")
 
-    # --- 1. loader profile: machine-verified baseline, payload size/CRC swapped in
-    profile_src = (NATIVE / "baseline" / f"canopus_loader_profile-{TARGET}.bin").read_text()
-    profile_src = re.sub(r"supervisor_size = \d+", f"supervisor_size = {len(payload)}", profile_src)
-    profile_src = re.sub(r"supervisor_crc = \d+", f"supervisor_crc = {zlib.crc32(payload)}", profile_src)
+    # --- 1. stage resources from build_stages.py (stage1/stage2 rebuilt and
+    # CRC-bound to this payload; profile generated with matching values)
+    stages = NATIVE / "watchface" / "stages"
+    profile_src = (stages / f"canopus_loader_profile-{TARGET}.bin").read_text()
+    stage1 = (stages / f"canopus_stage1-{TARGET}.bin").read_bytes()
+    stage2 = (stages / f"canopus_stage2-{TARGET}.bin").read_bytes()
 
-    stage1 = (NATIVE / "baseline" / f"canopus_stage1-{TARGET}.bin").read_bytes()
-    stage2 = (NATIVE / "baseline" / f"canopus_stage2-{TARGET}.bin").read_bytes()
-    stage1_size = int(re.search(r"stage1_size = (\d+)", profile_src).group(1))
-    stage1_crc = int(re.search(r"stage1_crc = (\d+)", profile_src).group(1))
-    stage2_size = int(re.search(r"stage2_size = (\d+)", profile_src).group(1))
-    stage2_crc = int(re.search(r"stage2_crc = (\d+)", profile_src).group(1))
-    if (stage1_size, stage1_crc) != (len(stage1), zlib.crc32(stage1)):
-        raise SystemExit("baseline stage1 does not match profile size/CRC")
-    if (stage2_size, stage2_crc) != (len(stage2), zlib.crc32(stage2)):
-        raise SystemExit("baseline stage2 does not match profile size/CRC")
+    def field(name):
+        return int(re.search(rf"{name} = (\d+)", profile_src).group(1))
+
+    if len(stage1) != field("stage1_size") or zlib.crc32(stage1) != field("stage1_crc"):
+        raise SystemExit("stages stage1 does not match profile size/CRC")
+    if len(stage2) != field("stage2_size") or zlib.crc32(stage2) != field("stage2_crc"):
+        raise SystemExit("stages stage2 does not match profile size/CRC")
+    if len(payload) != field("supervisor_size") or zlib.crc32(payload) != field("supervisor_crc"):
+        raise SystemExit("stages supervisor does not match payload size/CRC")
 
     # --- 2. recovery PROFILES injection from lua-recovery.toml
     rec = tomllib.loads((NATIVE / "target" / "lua-recovery.toml").read_text())
