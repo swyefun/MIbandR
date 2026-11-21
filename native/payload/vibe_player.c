@@ -64,7 +64,7 @@ typedef int  (*register_driver_fn)(const char *path, const void *fops,
 #define VIBE_BUSY           (-3)  /* exclusive stock vibration playing */
 
 /* Nuttx character device node visible to stock watchface Lua. */
-#define VIBE_DEVICE_PATH    "/canopus/vibe"
+#define VIBE_DEVICE_PATH    "/dev/vibe"
 
 /* ---- recovered file_operations layout (canopus_veneer.h:31-39) ---- */
 

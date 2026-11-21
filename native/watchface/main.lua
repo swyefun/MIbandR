@@ -2,11 +2,11 @@
 -- SPDX-License-Identifier: AGPL-3.0-or-later
 -- Derived from the Canopus Band 11 installer (AGPL-3.0, see
 -- native/licenses/CANOPUS-AGPLv3-LICENSE); the CPC2 module-install stages
--- are removed and replaced by direct /canopus/vibe trigger buttons.
+-- are removed and replaced by direct /dev/vibe trigger buttons.
 --
 -- Run performs: NSH mw/exec stage-1 -> stage-2 -> vibe-player constructor
--- (registers /canopus/vibe). The trigger buttons then write one command
--- byte to /canopus/vibe to play amplitude-sweep test waveforms.
+-- (registers /dev/vibe). The trigger buttons then write one command
+-- byte to /dev/vibe to play amplitude-sweep test waveforms.
 
 -- @MIBANDR_RECOVERY@
 -- @MIBANDR_PROFILE@
@@ -33,7 +33,7 @@ end
 local lvgl = require("lvgl")
 
 local TARGET_ID = PROFILE and PROFILE.target_id
-local VIBE_DEVICE = "/canopus/vibe"
+local VIBE_DEVICE = "/dev/vibe"
 local MODULE_MIN_SIZE = 512
 local MODULE_MAX_SIZE = 262144
 
@@ -205,7 +205,7 @@ local function load_engine()
 end
 
 local function vibe_send(command)
-    -- Direct firmware call path: the payload registered /canopus/vibe; one
+    -- Direct firmware call path: the payload registered /dev/vibe; one
     -- command byte selects the built-in waveform test.
     local file = control_open(VIBE_DEVICE, "wb")
     if not file then return false, "设备节点不可用，请先加载引擎" end
@@ -344,7 +344,7 @@ local function click_load()
         if not vibe_device_present() then
             check(load_engine())
             checkpoint("确认引擎已就绪")
-            check(vibe_device_present(), "no /canopus/vibe")
+            check(vibe_device_present(), "no /dev/vibe")
         end
         engine_loaded = true
         return "引擎已加载\n可点击下方按钮测试幅度"
