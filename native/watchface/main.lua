@@ -53,6 +53,40 @@ local status
 local function checkpoint(text) runner.checkpoint(text) end
 local function check(ok, message) if not ok then error(message, 0) end end
 
+-- Embedded resource fallback: the Band 11 watchface runtime may not
+-- materialise extraJs resources for a re-used face id; pack_face.py injects
+-- base64 blobs into __MIBANDR_BLOBS_B64__ so resources are self-contained.
+local MI_BANDR_EMBEDDED = __MIBANDR_BLOBS_B64__ or {}
+
+local B64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+local B64_LOOKUP = {}
+for i = 1, #B64_ALPHABET do B64_LOOKUP[B64_ALPHABET:sub(i, i)] = i - 1 end
+
+local function b64decode(data)
+    local out, buf, bits = {}, 0, 0
+    for i = 1, #data do
+        local v = B64_LOOKUP[data:sub(i, i)]
+        if v then
+            buf = buf * 64 + v
+            bits = bits + 6
+            if bits >= 8 then
+                bits = bits - 8
+                out[#out + 1] = string.char((buf >> bits) & 0xFF)
+                buf = buf & ((1 << bits) - 1)
+            end
+        end
+    end
+    return table.concat(out)
+end
+
+local function embedded_blob(path)
+    if type(MI_BANDR_EMBEDDED) ~= "table" then return nil end
+    local name = tostring(path):match("([^/\\]+)$")
+    local b64 = name and MI_BANDR_EMBEDDED[name]
+    if type(b64) == "string" then return b64decode(b64) end
+    return nil
+end
+
 local function run(command)
     print("[mibandr:vibe-player] exec: " .. command)
     if type(execute) ~= "function" then return false end
@@ -61,12 +95,15 @@ local function run(command)
 end
 
 local function read_all(path, mode)
-    if type(io) ~= "table" or type(io.open) ~= "function" then return nil end
-    local file = io.open(path, mode or "rb")
-    if not file then return nil end
-    local content = file:read("*a")
-    file:close()
-    return content
+    if type(io) == "table" and type(io.open) == "function" then
+        local file = io.open(path, mode or "rb")
+        if file then
+            local content = file:read("*a")
+            file:close()
+            return content
+        end
+    end
+    return embedded_blob(path)
 end
 
 local function write_all(path, content)
@@ -107,14 +144,20 @@ local function select_target()
 end
 
 local function verify_payload_file(path)
-    if type(io) ~= "table" or type(io.open) ~= "function" then
-        return false, "io.open unavailable"
+    local header, size
+    if type(io) == "table" and type(io.open) == "function" then
+        local file = io.open(path, "rb")
+        if file then
+            header = file:read(20)
+            size = file:seek("end")
+            file:close()
+        end
     end
-    local file = io.open(path, "rb")
-    if not file then return false, "missing vibe-player payload" end
-    local header = file:read(20)
-    local size = file:seek("end")
-    file:close()
+    if not header then
+        local blob = embedded_blob(path)
+        if not blob then return false, "missing vibe-player payload" end
+        header, size = blob:sub(1, 20), #blob
+    end
     if type(header) ~= "string" or #header ~= 20
         or header:sub(1, 4) ~= "\127ELF"
         or header:byte(5) ~= 1 or header:byte(6) ~= 1
@@ -136,14 +179,14 @@ end
 local function resources_ready()
     if type(profile) ~= "table" then return false end
     for _, item in ipairs({
-        { stage1_resource, "r", "检查第一阶段加载资源" },
-        { stage2_resource, "rb", "检查第二阶段加载资源" },
-        { payload_resource, "rb", "检查振动引擎资源" },
+        { stage1_resource, "检查第一阶段加载资源" },
+        { stage2_resource, "检查第二阶段加载资源" },
+        { payload_resource, "检查振动引擎资源" },
     }) do
-        checkpoint(item[3])
-        local file = io.open(item[1], item[2])
-        if not file then return false end
-        file:close()
+        checkpoint(item[2])
+        -- read_all falls back to embedded base64 blobs when the runtime
+        -- does not materialise extraJs resources on disk.
+        if type(read_all(item[1])) ~= "string" then return false end
     end
     checkpoint("检查振动引擎格式与大小")
     return verify_payload_file(payload_resource)
