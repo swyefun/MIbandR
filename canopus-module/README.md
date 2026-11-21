@@ -18,8 +18,9 @@ amplitude，没有频率字段），模块无法扫频。但给窄带 LRA 任何
 - `activate`：立即触发一次 5000 ms 长振动，并用 4000 ms 周期定时器不断重触发，
   使马达近似持续振动，留足时间录音。
 - `deactivate` / `stop`：停定时器并取消振动。
-- `query`：输出 6 个 u32 状态字（magic/version/active/ticks/last_rc/timer_id），
-  用于确认服务确实跑起来了：`last_rc == 0` 表示振动服务调用成功。
+- `query`：空实现（no-op）。179 是 zero-import 目标，模块不能链接运行时的
+  status-writer 辅助函数，所以状态字输出不可用——与官方 all-services-test 模块
+  的做法一致。振动是否生效靠外部观察：马达应该持续振动，录音频谱有峰值。
 
 ## 构建与打包（CI，无本地交叉工具链）
 
@@ -41,8 +42,7 @@ cd modules/examples/vib-probe && canopus build && canopus package
 2. 把生成的 device 目录下的 `main.lua` 和 `.bin` 打包成表盘 `.face/.bin`
    （用 Mi8WfBinTool），作为安装器表盘装到手环。
 
-3. 手环设置里确认「振动」未关闭（系统关闭时 haptics 返回 ERR_STATE，模块
-   `last_rc` 会是负值）。
+3. 手环设置里确认「振动」未关闭（系统关闭时振动服务会返回错误，马达不振）。
 
 4. 在手环上激活 vib_probe 模块 → 马达开始持续振动。
 
@@ -63,5 +63,5 @@ cd modules/examples/vib-probe && canopus build && canopus package
 - 同一时刻只有一次振动；新脉冲会替换旧脉冲，重触发瞬间有极短断振，
   取 FFT 稳定段的峰值即可，不影响 f0 判定。
 - `vibrate` 单次上限 5000 ms，所以用 4 s 周期重触发来覆盖。
-- 这是静态恢复 + 模拟器证据，未在真机验证；模块 `query` 的 `last_rc` 是
-  判断真机是否真的驱动成功的第一手依据。
+- 这是静态恢复 + 模拟器证据，未在真机验证；激活后马达若不振，先查振动开关，
+  再用录音/频谱确认是否有振动耦合出来的声音。

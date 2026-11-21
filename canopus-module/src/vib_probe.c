@@ -11,7 +11,8 @@
  * Activate  -> immediately start a 5000 ms pulse, then re-trigger on a
  *              periodic timer so excitation is effectively continuous.
  * Deactivate/stop -> cancel vibration and destroy the timer.
- * query     -> status words so the host can confirm the service actually ran.
+ * query     -> no-op: zero-import target cannot link the runtime's status
+ *              writer helpers; excitation is verified externally (audio FFT).
  *
  * No firmware addresses are hard-coded here: all hardware access goes
  * through ctx->haptics / ctx->time services on the exact-target supervisor.
@@ -19,8 +20,6 @@
 #include "canopus_module_entry.h"
 #include <stddef.h>
 
-#define VIB_MAGIC             0x56504231u /* "VPB1" */
-#define VIB_STATUS_VERSION    1u
 #define VIB_PULSE_MS          5000u       /* max accepted by haptics service */
 #define VIB_RETRIGGER_MS      4000u       /* re-drive before the pulse ends  */
 #define VIB_ERR_NO_SERVICE    (-38)       /* ENODATA-ish: service object absent */
@@ -115,18 +114,11 @@ static int32_t vib_stop(const struct canopus_context_v1 *ctx)
 
 static int32_t vib_query(struct canopus_status_writer_v1 *writer)
 {
-    struct vib_state *st = &s_state;
-    if (writer != 0) {
-        struct canopus_status_writer_v1 tmp = *writer;
-        canopus_status_put_u32(&tmp, VIB_MAGIC);
-        canopus_status_put_u32(&tmp, VIB_STATUS_VERSION);
-        canopus_status_put_u32(&tmp, st->active);
-        canopus_status_put_u32(&tmp, st->ticks);
-        canopus_status_put_u32(&tmp, (uint32_t)st->last_rc);
-        canopus_status_put_u32(&tmp, (uint32_t)st->timer_id);
-        canopus_status_writer_publish(&tmp);
-        *writer = tmp;
-    }
+    /* The .179 target is zero-import: status-writer helpers live in the
+     * supervisor runtime and would be undefined imports here. Keep query a
+     * no-op, matching the official all-services-test module. excitation is
+     * confirmed externally by the buzzing sound + recorded FFT peak. */
+    (void)writer;
     return 0;
 }
 

@@ -43,7 +43,8 @@ MIbandR/
 1. CI 编译 `vib_probe` 出 ELF + receipt → 安装器生成表盘 → Mi8WfBinTool 打包 → 装到手环。
 2. 确认手环未关振动 → 激活模块（持续振 5 s、每 4 s 重触发）。
 3. 手环放进空心硬壁容器 → 手机 FFT App 录音 → 读峰值频率。
-4. `query` 状态字中 `last_rc == 0` 是振动服务确实生效的第一手判据。
+4. 振动生效的判据：马达持续振动 + 录音频谱出现稳定峰值（`query` 在
+   zero-import 目标上是空实现，无法输出状态字）。
 5. 换多个不同容积容器交叉验证：多次都出现的峰才是马达真实 f0。
 
 完整步骤见 [`canopus-module/README.md`](canopus-module/README.md) 与 [`docs/04-resonant-cavity.md`](docs/04-resonant-cavity.md)。

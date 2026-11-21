@@ -42,9 +42,11 @@
 3. **容器反推法**：固定容器扫频找最响频率，反推腔体共振，再与马达扫频对比是否重合。
 4. **本仓库方案**：Canopus 模块持续激励 + 空心容器耦合 + 手机 FFT 读谱（不需要额外驱动硬件）。
 
-## 诊断判据
+## 模块状态输出
 
-激活 `vib_probe` 后 `query` 输出 6 个 u32：`magic / version / active / ticks / last_rc / timer_id`。真机上 `last_rc == 0` 证明振动服务真的跑起来了；负值（如 `ERR_STATE`）说明系统关闭了振动或服务不可用。
+179 是 zero-import 目标——模块里任何未定义外部符号都会被 verifier 拒绝。status-writer 辅助函数（`canopus_status_put_u32` 等）的实现在 Supervisor 的 `runtime/control/canopus_control.c`，模块若直接调用会产生未定义符号。官方 `all-services-test` 模块的 `query` 直接 `(void)writer; return 0;`，`hello` 则把 5 个 runtime 源文件列进自己的 sources 才能用。
+
+`vib_probe` 只需持续驱动马达，不依赖 portable runtime，因此 `query` 采用空实现（同 `all-services-test`）。振动是否生效靠**外部观察**：马达持续振动 + 录音频谱出现稳定峰值。若系统关闭振动，马达不振，需先检查手环振动开关。
 
 ## 来源
 
