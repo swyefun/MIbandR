@@ -11,10 +11,11 @@
  * amplitude u8}. This is the capability the Canopus haptics service hides
  * (its platform layer hard-codes amplitude 255).
  *
- * Exposed interface: character device /canopus/vibe. The Band 11 Lua path
- * check rejects only /dev, /proc and /sys prefixes (Canopus registers
- * /canopus/install for the same reason), so a stock watchface Lua can
- * io.open("/canopus/vibe","wb") and write one command byte:
+ * Exposed interface: character device /dev/vibe (same /dev prefix as the
+ * proven /dev/canopus node). The device is opened with the firmware's
+ * ORIGINAL io.open (recovered from the sandboxed wrapper via
+ * debug.getupvalue, exactly like the Canopus installer does for
+ * /dev/canopus) and accepts one command byte per write:
  *
  *   0x00  stop current vibration (vibrator_cancel)
  *   0x01  amplitude sweep: 5 levels 16/64/128/200/255, 900 ms on, 800 ms off
@@ -63,7 +64,15 @@ typedef int  (*register_driver_fn)(const char *path, const void *fops,
 #define VIBE_KIND_WAVEFORM  2u
 #define VIBE_BUSY           (-3)  /* exclusive stock vibration playing */
 
-/* Nuttx character device node visible to stock watchface Lua. */
+/* Firmware open/close for in-kernel self-verification (matches Canopus
+ * supervisor's register-then-open-verify, canopus_supervisor_platform.c:335).
+ * This firmware's O_RDONLY is 1 (canopus_supervisor_platform.c:74). */
+typedef int (*fw_open_fn)(const char *path, int flags);
+typedef int (*fw_close_fn)(int fd);
+#define FW_O_RDONLY 1
+#define VIBE_REGISTER_VERIFY_BASE 65536  /* Canopus REGISTER_VERIFY_ERRNO_BASE */
+
+/* Nuttx character device node, same prefix as the proven /dev/canopus. */
 #define VIBE_DEVICE_PATH    "/dev/vibe"
 
 /* ---- recovered file_operations layout (canopus_veneer.h:31-39) ---- */
@@ -163,8 +172,33 @@ static int32_t vibe_write(void *filep, const void *buffer, uint32_t count)
     }
 }
 
+static int32_t vibe_read(void *filep, void *buffer, uint32_t count)
+{
+    /* Device is write-only control; report EOF like an empty pipe. */
+    (void)filep;
+    (void)buffer;
+    (void)count;
+    return 0;
+}
+
+static int vibe_open(void *filep)
+{
+    (void)filep;
+    return 0;
+}
+
+static int vibe_close(void *filep)
+{
+    (void)filep;
+    return 0;
+}
+
+/* Every callback non-NULL, mirroring the proven Canopus fops
+ * (s_fops/s_installer_fops always set open/close/read/write). */
 static const struct vibe_fops s_fops = {
-    0, 0, 0,
+    (void *)(uintptr_t)&vibe_open,
+    (void *)(uintptr_t)&vibe_close,
+    (void *)(uintptr_t)&vibe_read,
     (void *)(uintptr_t)&vibe_write,
     0, 0,
     {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
@@ -178,20 +212,35 @@ static const struct vibe_fops s_fops = {
 static void vibe_player_ctor(volatile int32_t *mailbox)
 {
     register_driver_fn reg = (register_driver_fn)(uintptr_t)B11_REGISTER_DRIVER;
+    fw_open_fn fw_open = (fw_open_fn)(uintptr_t)FW_NUTTX_OPEN;
+    fw_close_fn fw_close = (fw_close_fn)(uintptr_t)FW_NUTTX_CLOSE;
+    int rc;
 
     s_last_id = 0;
-    int rc = reg(VIBE_DEVICE_PATH, (const void *)&s_fops, (void *)0);
-    if (rc == -17) {
-        /* -EEXIST: the device node survived from an earlier successful
-         * load in this boot session (the driver table persists across
-         * module reloads). The device is available either way. */
-        rc = 0;
-    }
-    if (mailbox) {
-        /* NuttX register_driver: 0 on success, negative errno on failure. */
+    rc = reg(VIBE_DEVICE_PATH, (const void *)&s_fops, (void *)0);
+    if (rc != 0 && rc != -17) {
+        /* -EEXIST tolerated: a stale same-name inode from an earlier load
+         * serves the same device. Anything else is a real failure. */
         *mailbox = rc;
         __asm__ volatile("dsb sy" ::: "memory");
+        return;
     }
+    /* The firmware register_driver wrapper discards inode_reserve failures
+     * and returns the inode-lock release result (Canopus supervisor comment),
+     * so verify the node is actually openable before reporting success. */
+    {
+        int fd = fw_open(VIBE_DEVICE_PATH, FW_O_RDONLY);
+        if (fd < 0) {
+            int err = -fd;
+            if (err > 4095) err = 4095;
+            *mailbox = -(VIBE_REGISTER_VERIFY_BASE + err);
+            __asm__ volatile("dsb sy" ::: "memory");
+            return;
+        }
+        (void)fw_close(fd);
+    }
+    *mailbox = 0;
+    __asm__ volatile("dsb sy" ::: "memory");
 }
 
 __attribute__((used, section(".init_array")))
