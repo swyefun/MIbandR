@@ -26,6 +26,8 @@ from pathlib import Path
 MI8_DIR = Path(r"C:/Users/HP/WorkBuddy/Mi8WfBinTool")
 BASE_FACE = MI8_DIR / "vib-probe-installer.face"
 LUA_DIR = "images/_lua/xiaomi-band-11"
+FACE_ID = "261114180"  # new id: the runtime does not re-materialise extraJs
+                       # resources for a re-used face id (observed on device)
 EXTRA_FILES = [
     "canopus_loader_profile-xiaomi-band-11-4.100.179.bin",
     "canopus_stage1-xiaomi-band-11-4.100.179.bin",
@@ -67,6 +69,7 @@ def main() -> int:
         wfdef_path = pack_dir / "wfDef.json"
         wfdef = json.loads(wfdef_path.read_text(encoding="utf-8"))
         wfdef["name"] = "MIbandR Vibe Player"
+        wfdef["id"] = FACE_ID
         face = wfdef["faces"][0]
         face["extraJs"] = [
             {
@@ -77,6 +80,20 @@ def main() -> int:
             for i, name in enumerate(EXTRA_FILES, 1)
         ]
         wfdef_path.write_text(json.dumps(wfdef, ensure_ascii=False, indent=1), encoding="utf-8")
+
+        # Inject embedded-blob fallback if the main.lua still has the placeholder
+        # (CI-built main.lua carries the decoder + __MIBANDR_BLOBS_B64__ slot).
+        main_path = pack_dir / LUA_DIR / "main.lua"
+        main_src = main_path.read_text(encoding="utf-8")
+        if "__MIBANDR_BLOBS_B64__" in main_src:
+            import base64
+            table = ", ".join(
+                f'["{name}"]="{base64.b64encode((lua_dir / name).read_bytes()).decode()}"'
+                for name in EXTRA_FILES
+            )
+            main_src = main_src.replace("__MIBANDR_BLOBS_B64__", "{ " + table + " }")
+            main_path.write_text(main_src, encoding="utf-8", newline="")
+            print("injected embedded blobs into main.lua")
 
         out = args.out_face.resolve()
         subprocess.run(
