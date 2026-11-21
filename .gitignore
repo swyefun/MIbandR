@@ -1,0 +1,13 @@
+# Build outputs
+*.o
+*.elf
+*.bin
+*.face
+*.rpk
+target/
+dist/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
