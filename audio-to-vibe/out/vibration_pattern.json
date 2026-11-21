@@ -1,0 +1,30 @@
+{
+  "source": "test_rhythm.wav",
+  "sample_rate": 16000,
+  "duration_ms": 1400,
+  "frame_ms": 10,
+  "peak_rms": 0.54887,
+  "threshold": 0.08233,
+  "min_gap_ms": 20,
+  "patterns": [
+    [
+      150,
+      50,
+      100,
+      100,
+      150,
+      50,
+      100,
+      100,
+      300,
+      50,
+      100,
+      150
+    ]
+  ],
+  "api_limits": {
+    "max_items": 16,
+    "max_pulse_ms": 5000,
+    "resolution_ms": 10
+  }
+}
