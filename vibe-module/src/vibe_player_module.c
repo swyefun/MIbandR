@@ -7,13 +7,19 @@
  * ctx->launcher->register_app with page_count = 0, which binds the launcher
  * page to the module's UI entry (ADR-CAN-011 single-page contract).
  *
- * The UI offers four LRA waveform tests. Unlike the supervisor haptics
- * service (which hard-codes amplitude 255), the tests call the firmware
- * vibrator_run symbol directly — CANOPUS_SUP_VIBRATOR_RUN from the exact
- * target's generated address header — so every segment carries its REAL
- * amplitude. That is the whole point of this module: verify that segment
- * amplitude changes perceived loudness, the capability needed for
- * amplitude-modulated "audio through the motor".
+ * The UI offers two pages. Page 1 (基础测试): four LRA waveform tests. Unlike
+ * the supervisor haptics service (which hard-codes amplitude 255), the tests
+ * call the firmware vibrator_run symbol directly —
+ * CANOPUS_SUP_VIBRATOR_RUN from the exact target's generated address header —
+ * so every segment carries its REAL amplitude. Page 2 (精度探测) probes the
+ * three unexplored corners of the stock waveform ABI:
+ *   - duration lower bound (how short can a segment be and still register),
+ *   - the offset field (scheduling within a timeline vs plain sequential),
+ *   - the flags byte (each bit 0x01..0x80 at full amplitude; a rejected bit
+ *     shows up as a negative rc, an accepted one as a perceptible change).
+ * The stock firmware gets its haptic "feel" from amplitude envelopes on the
+ * same primitive — mapping these corners is what stands between us and
+ * reproducing stock-grade effects.
  *
  * vibrator_run is asynchronous (returns a vibration id; the firmware motor
  * service plays the sequence), so no callback ever blocks.
@@ -23,8 +29,16 @@
 
 #define MODULE_ID  "vibe_player"
 
-enum { CMD_SWEEP = 1, CMD_PULSE, CMD_STEADY, CMD_STOP };
-enum { KEY_SWEEP = 10, KEY_PULSE, KEY_STEADY, KEY_STOP, KEY_STATUS };
+enum {
+    CMD_SWEEP = 1, CMD_PULSE, CMD_STEADY, CMD_STOP,
+    CMD_PROBE_DURATION, CMD_PROBE_OFFSET, CMD_PROBE_FLAGS,
+    CMD_GOPROBE, CMD_BACK
+};
+enum {
+    KEY_SWEEP = 10, KEY_PULSE, KEY_STEADY, KEY_STOP, KEY_STATUS,
+    KEY_PROBE_DURATION, KEY_PROBE_OFFSET, KEY_PROBE_FLAGS,
+    KEY_GOPROBE, KEY_BACK
+};
 
 /* ---- firmware vibrator ABI, recovered by Canopus (platform.c:1940-1969) ---- */
 
@@ -78,12 +92,76 @@ static const struct vibe_segment s_steady[1] = {
     {0u, 3000u, 0u, 255u},
 };
 
+/* 0x04: duration lower-bound sweep, descending, full amplitude, 900 ms gaps.
+ * Perceived boundary between the last felt and first unfelt pulse is the
+ * real timing resolution (LRA mechanical rise time is expected to dominate
+ * well above the 1 ms API granularity). */
+static const struct vibe_segment s_durlow[13] = {
+    {0u, 100u, 0u, 255u}, {0u, 900u, 0u, 0u},
+    {0u,  50u, 0u, 255u}, {0u, 900u, 0u, 0u},
+    {0u,  20u, 0u, 255u}, {0u, 900u, 0u, 0u},
+    {0u,  10u, 0u, 255u}, {0u, 900u, 0u, 0u},
+    {0u,   5u, 0u, 255u}, {0u, 900u, 0u, 0u},
+    {0u,   2u, 0u, 255u}, {0u, 900u, 0u, 0u},
+    {0u,   1u, 0u, 255u},
+};
+
+/* 0x05: offset scheduling probe. A 3 s SILENT base segment (offset 0) with
+ * three 150 ms full-amplitude pulses at offsets 500/1500/2500 ms.
+ *  - offset honored:  silence, then pulses at ~0.5 s, 1.5 s, 2.5 s.
+ *  - offset ignored (sequential): ~3 s of silence FIRST, then the three
+ *    pulses back-to-back. Two clearly distinguishable outcomes. */
+static const struct vibe_segment s_offset[4] = {
+    {   0u, 3000u, 0u,   0u},
+    { 500u,  150u, 0u, 255u},
+    {1500u,  150u, 0u, 255u},
+    {2500u,  150u, 0u, 255u},
+};
+
+/* 0x06: flags byte scan - each bit 0x01..0x80 drives one 600 ms full-amplitude
+ * segment (400 ms silent gaps carry flags 0). A bit rejected by the firmware
+ * fails the whole run with a negative rc; a bit that alters drive behavior
+ * (brake, boost, envelope shape) shows up as a perceptible change. */
+static const struct vibe_segment s_flags[16] = {
+    {0u, 600u, 0x01u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 600u, 0x02u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 600u, 0x04u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 600u, 0x08u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 600u, 0x10u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 600u, 0x20u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 600u, 0x40u, 255u}, {0u, 400u, 0u, 0u},
+    {0u, 600u, 0x80u, 255u}, {0u, 400u, 0u, 0u},
+};
+
 static struct vibe_waveform s_wave;
 static struct vibe_params  s_params; /* static: zero-initialized */
 static int32_t s_last_id;
 static const struct canopus_context_v1 *s_ctx;
 static const char *s_result = "点击按钮开始测试";
 static int32_t s_result_rc;
+static uint8_t  s_page; /* 0 = main page, 1 = precision probe page */
+
+/* status line "<label> rc=<n>" rendered into a static buffer (no libc) */
+static char s_status_buf[72];
+static void set_status(const char *label, int32_t rc)
+{
+    uint32_t n = 0, i, t;
+    char tmp[12];
+    int32_t v = rc;
+    while (label[n] != 0 && n < 48u) { s_status_buf[n] = label[n]; n++; }
+    s_status_buf[n++] = ' ';
+    s_status_buf[n++] = 'r';
+    s_status_buf[n++] = 'c';
+    s_status_buf[n++] = '=';
+    i = n;
+    if (v < 0) { s_status_buf[i++] = '-'; v = -v; }
+    t = 0;
+    do { tmp[t++] = (char)('0' + (int)(v % 10)); v /= 10; } while (v != 0 && t < sizeof(tmp));
+    while (t > 0) s_status_buf[i++] = tmp[--t];
+    s_status_buf[i] = 0;
+    s_result = s_status_buf;
+    s_result_rc = rc;
+}
 
 static int32_t vibe_play(const struct vibe_segment *segments, uint32_t count)
 {
@@ -138,18 +216,34 @@ static int32_t vibe_render(struct canopus_ui_context_v1 *ui)
     struct canopus_ui_tree_v1 *t;
     struct canopus_ui_navigation_page_props_v1 page = {
         sizeof(page), "MIbandR Vibe", vlen("MIbandR Vibe") };
+    struct canopus_ui_navigation_page_props_v1 probe = {
+        sizeof(probe), "精度探测", vlen("精度探测") };
     int32_t rc = s_ctx->ui->tree_begin(ui, &t);
 
     if (rc != 0) return rc;
-    if (rc == 0) rc = s_ctx->ui->navigation_page(t, 1u, &page);
-    if (rc == 0) rc = ui_action(t, KEY_SWEEP, "扫幅度",
-                                "16/64/128/200/255 递增", CMD_SWEEP);
-    if (rc == 0) rc = ui_action(t, KEY_PULSE, "短脉冲",
-                                "50/100/200/400 ms 全幅度", CMD_PULSE);
-    if (rc == 0) rc = ui_action(t, KEY_STEADY, "恒振",
-                                "3 秒 全幅度 参考音", CMD_STEADY);
-    if (rc == 0) rc = ui_action(t, KEY_STOP, "停止",
-                                "cancel 当前振动", CMD_STOP);
+    if (s_page == 0u) {
+        if (rc == 0) rc = s_ctx->ui->navigation_page(t, 1u, &page);
+        if (rc == 0) rc = ui_action(t, KEY_SWEEP, "扫幅度",
+                                    "16/64/128/200/255 递增", CMD_SWEEP);
+        if (rc == 0) rc = ui_action(t, KEY_PULSE, "短脉冲",
+                                    "50/100/200/400 ms 全幅度", CMD_PULSE);
+        if (rc == 0) rc = ui_action(t, KEY_STEADY, "恒振",
+                                    "3 秒 全幅度 参考音", CMD_STEADY);
+        if (rc == 0) rc = ui_action(t, KEY_STOP, "停止",
+                                    "cancel 当前振动", CMD_STOP);
+        if (rc == 0) rc = ui_action(t, KEY_GOPROBE, "精度探测 →",
+                                    "时长下限/offset/flags", CMD_GOPROBE);
+    } else {
+        if (rc == 0) rc = s_ctx->ui->navigation_page(t, 2u, &probe);
+        if (rc == 0) rc = ui_action(t, KEY_PROBE_DURATION, "① 时长下限",
+                                    "100→50→20→10→5→2→1 ms", CMD_PROBE_DURATION);
+        if (rc == 0) rc = ui_action(t, KEY_PROBE_OFFSET, "② offset 调度",
+                                    "静默3s + 3脉冲@0.5/1.5/2.5s", CMD_PROBE_OFFSET);
+        if (rc == 0) rc = ui_action(t, KEY_PROBE_FLAGS, "③ flags 位扫描",
+                                    "0x01..0x80 各600ms", CMD_PROBE_FLAGS);
+        if (rc == 0) rc = ui_action(t, KEY_BACK, "← 返回",
+                                    "回主页面", CMD_BACK);
+    }
     if (rc == 0) rc = ui_status(t);
     if (rc == 0) rc = s_ctx->ui->end(t);
     if (rc == 0) rc = s_ctx->ui->tree_commit(t); else s_ctx->ui->tree_abort(t);
@@ -173,25 +267,39 @@ static int32_t vibe_on_event(const struct canopus_context_v1 *ctx,
     if (e->type != CANOPUS_UI_EVENT_ACTIVATE) return 0;
 
     switch (e->event_id) {
-    case CMD_SWEEP:  rc = vibe_play(s_scan, 9u);   break;
-    case CMD_PULSE:  rc = vibe_play(s_pulse, 7u);  break;
-    case CMD_STEADY: rc = vibe_play(s_steady, 1u); break;
+    case CMD_SWEEP:  rc = vibe_play(s_scan, 9u);   set_status("扫幅度", rc);  return vibe_render(ui);
+    case CMD_PULSE:  rc = vibe_play(s_pulse, 7u);  set_status("短脉冲", rc);  return vibe_render(ui);
+    case CMD_STEADY: rc = vibe_play(s_steady, 1u); set_status("恒振", rc);    return vibe_render(ui);
+    case CMD_PROBE_DURATION:
+        rc = vibe_play(s_durlow, 13u); set_status("时长下限", rc); return vibe_render(ui);
+    case CMD_PROBE_OFFSET:
+        rc = vibe_play(s_offset, 4u);  set_status("offset调度", rc); return vibe_render(ui);
+    case CMD_PROBE_FLAGS:
+        rc = vibe_play(s_flags, 16u);  set_status("flags扫描", rc); return vibe_render(ui);
     case CMD_STOP:
         vibe_stop_now();
-        rc = 0;
-        break;
+        set_status("已停止", 0);
+        return vibe_render(ui);
+    case CMD_GOPROBE:
+        s_page = 1u;
+        return vibe_render(ui);
+    case CMD_BACK:
+        s_page = 0u;
+        return vibe_render(ui);
     default:
         return CANOPUS_UI_ERR_ARGUMENT;
     }
-    s_result_rc = rc;
-    return vibe_render(ui);
 }
 
 static int32_t vibe_on_back(const struct canopus_context_v1 *ctx,
                             struct canopus_ui_context_v1 *ui, void *user)
 {
-    (void)ctx; (void)ui; (void)user;
-    return 1; /* default: close the page */
+    (void)ctx; (void)user;
+    if (s_page == 1u) {
+        s_page = 0u;          /* probe page: back returns to the main page */
+        return vibe_render(ui);
+    }
+    return 1; /* main page: close the page */
 }
 
 static void vibe_on_close(const struct canopus_context_v1 *ctx, void *user)
@@ -282,8 +390,8 @@ static const struct canopus_module_descriptor_v1 s_descriptor = {
                       CANOPUS_FLAG_REGISTERS_LAUNCHER_ENTRY |
                       CANOPUS_FLAG_APP_UNREGISTER_REBOOT_REQUIRED,
     .module_id      = MODULE_ID,
-    .module_version = "1.0.0",
-    .build_id       = "vibe-player-1.0.0",
+    .module_version = "1.1.0",
+    .build_id       = "vibe-player-1.1.0",
     .target_id      = CANOPUS_TARGET_ID,
     .prepare        = vibe_prepare,
     .activate       = vibe_activate,
