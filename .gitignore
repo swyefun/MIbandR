@@ -11,3 +11,6 @@ dist/
 .DS_Store
 Thumbs.db
 *.swp
+
+# temp dist extraction for .face build
+dist_extract/
