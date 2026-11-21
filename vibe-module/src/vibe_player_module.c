@@ -152,7 +152,8 @@ static int32_t vibe_render(struct canopus_ui_context_v1 *ui)
                                 "cancel 当前振动", CMD_STOP);
     if (rc == 0) rc = ui_status(t);
     if (rc == 0) rc = s_ctx->ui->end(t);
-    return rc == 0 ? s_ctx->ui->tree_commit(t) : s_ctx->ui->tree_abort(t);
+    if (rc == 0) rc = s_ctx->ui->tree_commit(t); else s_ctx->ui->tree_abort(t);
+    return rc;
 }
 
 static int32_t vibe_on_open(const struct canopus_context_v1 *ctx,
